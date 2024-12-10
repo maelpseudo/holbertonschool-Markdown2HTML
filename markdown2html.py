@@ -4,211 +4,204 @@ import os
 import re
 import hashlib
 
-def print_usage():
+# Check if the number of arguments is exactly 3 (script name + 2 arguments)
+if len(sys.argv) != 3:
     print("Usage: ./markdown2html.py README.md README.html", file=sys.stderr)
+    sys.exit(1)
 
-def print_missing(filename):
-    print(f"Missing {filename}", file=sys.stderr)
+# Get the input and output filenames from command-line arguments
+markdown_file = sys.argv[1]
+html_file = sys.argv[2]
 
-def md5_hash(text):
-    return hashlib.md5(text.encode()).hexdigest()
+# Check if the input Markdown file exists
+if not os.path.isfile(markdown_file):
+    print(f"Missing {markdown_file}", file=sys.stderr)
+    sys.exit(1)
 
-def remove_c(text):
-    return re.sub(r'[cC]', '', text)
+try:
+    # Read all lines from the Markdown file
+    with open(markdown_file, 'r') as md:
+        lines = md.readlines()
+except Exception as e:
+    print(f"Error reading {markdown_file}: {e}", file=sys.stderr)
+    sys.exit(1)
 
-def process_bold_emphasis(text):
-    # Replace **text** with <b>text</b>
-    text = re.sub(r'\*\*(.*?)\*\*', r'<b>\1</b>', text)
-    # Replace __text__ with <em>text</em>
-    text = re.sub(r'__(.*?)__', r'<em>\1</em>', text)
-    return text
+# Initialize variables to keep track of the current state
+html_output = []
+in_ul = False      # Flag to indicate if we're inside an unordered list
+in_ol = False      # Flag to indicate if we're inside an ordered list
+in_p = False       # Flag to indicate if we're inside a paragraph
+paragraph_lines = []  # To collect lines belonging to the current paragraph
 
-def process_special_syntax(text):
+# Iterate through each line in the Markdown file
+for line in lines:
+    stripped = line.rstrip()
+
+    # Functionality: Replace **text** with <b>text</b> and __text__ with <em>text</em>
+    # Replace **text**
+    bold_matches = re.findall(r'\*\*(.+?)\*\*', stripped)
+    for match in bold_matches:
+        stripped = stripped.replace(f"**{match}**", f"<b>{match}</b>")
+
+    # Replace __text__
+    italic_matches = re.findall(r'__(.+?)__', stripped)
+    for match in italic_matches:
+        stripped = stripped.replace(f"__{match}__", f"<em>{match}</em>")
+
+    # Functionality: Replace [[text]] with MD5 hash and ((text)) by removing 'c'/'C'
     # Replace [[text]] with MD5 hash
-    text = re.sub(r'\[\[(.*?)\]\]', lambda m: md5_hash(m.group(1)), text)
-    # Replace ((text)) with text without 'c' or 'C'
-    text = re.sub(r'\(\((.*?)\)\)', lambda m: remove_c(m.group(1)), text)
-    return text
+    hash_matches = re.findall(r'\[\[(.+?)\]\]', stripped)
+    for match in hash_matches:
+        md5_hash = hashlib.md5(match.encode()).hexdigest()
+        stripped = stripped.replace(f"[[{match}]]", md5_hash)
 
-def convert_markdown_to_html(lines):
-    html_output = []
-    in_ul = False
-    in_ol = False
-    in_p = False
+    # Replace ((text)) by removing 'c' and 'C'
+    remove_c_matches = re.findall(r'\(\((.+?)\)\)', stripped)
+    for match in remove_c_matches:
+        modified_text = re.sub(r'[cC]', '', match)
+        stripped = stripped.replace(f"(({match}))", modified_text)
 
-    paragraph_lines = []
-
-    for line in lines:
-        stripped = line.strip()
-
-        if not stripped:
-            # Empty line signifies the end of a paragraph or list
-            if in_p:
-                if paragraph_lines:
-                    paragraph_html = '<p>\n'
-                    for idx, pline in enumerate(paragraph_lines):
-                        pline = process_special_syntax(pline)
-                        pline = process_bold_emphasis(pline)
-                        if idx < len(paragraph_lines) - 1:
-                            paragraph_html += f'    {pline}\n    <br/>\n'
-                        else:
-                            paragraph_html += f'    {pline}\n'
-                    paragraph_html += '</p>'
-                    html_output.append(paragraph_html)
-                paragraph_lines = []
-                in_p = False
-            if in_ul:
-                html_output.append('</ul>')
-                in_ul = False
-            if in_ol:
-                html_output.append('</ol>')
-                in_ol = False
-            continue
-
-        # Headings
-        heading_match = re.match(r'^(#{1,6})\s+(.*)', stripped)
-        if heading_match:
-            if in_p:
-                if paragraph_lines:
-                    paragraph_html = '<p>\n'
-                    for idx, pline in enumerate(paragraph_lines):
-                        pline = process_special_syntax(pline)
-                        pline = process_bold_emphasis(pline)
-                        if idx < len(paragraph_lines) - 1:
-                            paragraph_html += f'    {pline}\n    <br/>\n'
-                        else:
-                            paragraph_html += f'    {pline}\n'
-                    paragraph_html += '</p>'
-                    html_output.append(paragraph_html)
-                paragraph_lines = []
-                in_p = False
-            if in_ul:
-                html_output.append('</ul>')
-                in_ul = False
-            if in_ol:
-                html_output.append('</ol>')
-                in_ol = False
-
-            level = len(heading_match.group(1))
-            content = heading_match.group(2)
-            content = process_special_syntax(content)
-            content = process_bold_emphasis(content)
-            html_output.append(f'<h{level}>{content}</h{level}>')
-            continue
-
-        # Unordered List
-        ul_match = re.match(r'^-\s+(.*)', stripped)
-        if ul_match:
-            if in_p:
-                if paragraph_lines:
-                    paragraph_html = '<p>\n'
-                    for idx, pline in enumerate(paragraph_lines):
-                        pline = process_special_syntax(pline)
-                        pline = process_bold_emphasis(pline)
-                        if idx < len(paragraph_lines) - 1:
-                            paragraph_html += f'    {pline}\n    <br/>\n'
-                        else:
-                            paragraph_html += f'    {pline}\n'
-                    paragraph_html += '</p>'
-                    html_output.append(paragraph_html)
-                paragraph_lines = []
-                in_p = False
-            if in_ol:
-                html_output.append('</ol>')
-                in_ol = False
-            if not in_ul:
-                html_output.append('<ul>')
-                in_ul = True
-            item = ul_match.group(1)
-            item = process_special_syntax(item)
-            item = process_bold_emphasis(item)
-            html_output.append(f'    <li>{item}</li>')
-            continue
-
-        # Ordered List
-        ol_match = re.match(r'^\*\s+(.*)', stripped)
-        if ol_match:
-            if in_p:
-                if paragraph_lines:
-                    paragraph_html = '<p>\n'
-                    for idx, pline in enumerate(paragraph_lines):
-                        pline = process_special_syntax(pline)
-                        pline = process_bold_emphasis(pline)
-                        if idx < len(paragraph_lines) - 1:
-                            paragraph_html += f'    {pline}\n    <br/>\n'
-                        else:
-                            paragraph_html += f'    {pline}\n'
-                    paragraph_html += '</p>'
-                    html_output.append(paragraph_html)
-                paragraph_lines = []
-                in_p = False
-            if in_ul:
-                html_output.append('</ul>')
-                in_ul = False
-            if not in_ol:
-                html_output.append('<ol>')
-                in_ol = True
-            item = ol_match.group(1)
-            item = process_special_syntax(item)
-            item = process_bold_emphasis(item)
-            html_output.append(f'    <li>{item}</li>')
-            continue
-
-        # Paragraph
-        if not in_p:
-            in_p = True
+    # Handle empty lines (signify end of paragraph or list)
+    if not stripped:
+        if in_p:
+            # Close paragraph
+            html_output.append("<p>")
+            for idx, pline in enumerate(paragraph_lines):
+                if idx < len(paragraph_lines) - 1:
+                    html_output.append(f"    {pline}<br/>")
+                else:
+                    html_output.append(f"    {pline}")
+            html_output.append("</p>")
             paragraph_lines = []
-        line_content = process_special_syntax(stripped)
-        line_content = process_bold_emphasis(line_content)
-        paragraph_lines.append(line_content)
+            in_p = False
+        if in_ul:
+            # Close unordered list
+            html_output.append("</ul>")
+            in_ul = False
+        if in_ol:
+            # Close ordered list
+            html_output.append("</ol>")
+            in_ol = False
+        continue
 
-    # After processing all lines, close any open tags
-    if in_p and paragraph_lines:
-        paragraph_html = '<p>\n'
-        for idx, pline in enumerate(paragraph_lines):
-            pline = pline
-            if idx < len(paragraph_lines) - 1:
-                paragraph_html += f'    {pline}\n    <br/>\n'
-            else:
-                paragraph_html += f'    {pline}\n'
-        paragraph_html += '</p>'
-        html_output.append(paragraph_html)
-    if in_ul:
-        html_output.append('</ul>')
-    if in_ol:
-        html_output.append('</ol>')
+    # Check for headings
+    heading_match = re.match(r'^(#{1,6})\s+(.*)', stripped)
+    if heading_match:
+        # Close any open paragraphs or lists
+        if in_p:
+            html_output.append("<p>")
+            for idx, pline in enumerate(paragraph_lines):
+                if idx < len(paragraph_lines) - 1:
+                    html_output.append(f"    {pline}<br/>")
+                else:
+                    html_output.append(f"    {pline}")
+            html_output.append("</p>")
+            paragraph_lines = []
+            in_p = False
+        if in_ul:
+            html_output.append("</ul>")
+            in_ul = False
+        if in_ol:
+            html_output.append("</ol>")
+            in_ol = False
 
-    return '\n'.join(html_output) + '\n'
+        # Determine heading level
+        level = len(heading_match.group(1))
+        content = heading_match.group(2)
+        html_output.append(f"<h{level}>{content}</h{level}>")
+        continue
 
-def main():
-    if len(sys.argv) != 3:
-        print_usage()
-        sys.exit(1)
+    # Check for unordered list items starting with '- '
+    ul_match = re.match(r'^-\s+(.*)', stripped)
+    if ul_match:
+        # Close any open paragraphs or ordered lists
+        if in_p:
+            html_output.append("<p>")
+            for idx, pline in enumerate(paragraph_lines):
+                if idx < len(paragraph_lines) - 1:
+                    html_output.append(f"    {pline}<br/>")
+                else:
+                    html_output.append(f"    {pline}")
+            html_output.append("</p>")
+            paragraph_lines = []
+            in_p = False
+        if in_ol:
+            html_output.append("</ol>")
+            in_ol = False
+        if not in_ul:
+            # Open unordered list
+            html_output.append("<ul>")
+            in_ul = True
+        # Add list item
+        item = ul_match.group(1)
+        html_output.append(f"    <li>{item}</li>")
+        continue
 
-    input_file = sys.argv[1]
-    output_file = sys.argv[2]
+    # Check for ordered list items starting with '* '
+    ol_match = re.match(r'^\*\s+(.*)', stripped)
+    if ol_match:
+        # Close any open paragraphs or unordered lists
+        if in_p:
+            html_output.append("<p>")
+            for idx, pline in enumerate(paragraph_lines):
+                if idx < len(paragraph_lines) - 1:
+                    html_output.append(f"    {pline}<br/>")
+                else:
+                    html_output.append(f"    {pline}")
+            html_output.append("</p>")
+            paragraph_lines = []
+            in_p = False
+        if in_ul:
+            html_output.append("</ul>")
+            in_ul = False
+        if not in_ol:
+            # Open ordered list
+            html_output.append("<ol>")
+            in_ol = True
+        # Add list item
+        item = ol_match.group(1)
+        html_output.append(f"    <li>{item}</li>")
+        continue
 
-    if not os.path.isfile(input_file):
-        print_missing(input_file)
-        sys.exit(1)
+    # If none of the above, it's part of a paragraph
+    if not in_p:
+        # Close any open lists
+        if in_ul:
+            html_output.append("</ul>")
+            in_ul = False
+        if in_ol:
+            html_output.append("</ol>")
+            in_ol = False
+        # Start a new paragraph
+        in_p = True
+        paragraph_lines = []
+    # Add the line to the current paragraph
+    paragraph_lines.append(stripped)
 
-    try:
-        with open(input_file, 'r') as f:
-            lines = f.readlines()
-    except Exception as e:
-        print(f"Error reading {input_file}: {e}", file=sys.stderr)
-        sys.exit(1)
+# After processing all lines, close any open tags
+if in_p:
+    html_output.append("<p>")
+    for idx, pline in enumerate(paragraph_lines):
+        if idx < len(paragraph_lines) - 1:
+            html_output.append(f"    {pline}<br/>")
+        else:
+            html_output.append(f"    {pline}")
+    html_output.append("</p>")
+if in_ul:
+    html_output.append("</ul>")
+if in_ol:
+    html_output.append("</ol>")
 
-    html_content = convert_markdown_to_html(lines)
+# Join all HTML lines with newline characters
+final_html = '\n'.join(html_output) + '\n'
 
-    try:
-        with open(output_file, 'w') as f:
-            f.write(html_content)
-    except Exception as e:
-        print(f"Error writing to {output_file}: {e}", file=sys.stderr)
-        sys.exit(1)
+# Write the HTML content to the output file
+try:
+    with open(html_file, 'w') as html:
+        html.write(final_html)
+except Exception as e:
+    print(f"Error writing to {html_file}: {e}", file=sys.stderr)
+    sys.exit(1)
 
-    sys.exit(0)
-
-if __name__ == "__main__":
-    main()
+# Exit successfully
+sys.exit(0)
